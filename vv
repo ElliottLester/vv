@@ -141,6 +141,7 @@ declare -g   currentview=$viewmode	# Most recently used viewmode.
 declare -gi  FrameCount		# Number of image frames in file. >1 for videos.
 declare -gi  ImageWidth		# Image width in pixels.
 declare -gi  ImageHeight	# Image height in pixels.
+declare -g   ConvertCmd   # command to call for convert
 
 # Debugging stuff
 declare -g   DEBUG=${DEBUG}	# Set to anything to enable debugging
@@ -211,10 +212,14 @@ prerequisites() {
     local -i returncode=0
 
     # Critical dependencies which cause fatal errors
-    if ! command -v magick >/dev/null; then
-	error "Please install ImageMagick for magick and identify"
-	returncode=1
-    fi
+	if command -v magick >/dev/null; then
+		ConvertCmd=magick
+	elif command -v convert >/dev/null; then
+		ConvertCmd=convert
+	else
+		error "Please install ImageMagick for convert and identify"
+		returncode=1
+	fi
 
     # Non-fatal errors that simply degrade performance or capability
     if ! command -v tput >/dev/null; then
@@ -446,7 +451,7 @@ hassixelordie() {
 
 	You may test your terminal by viewing a single image, like so:
 
-		magick  foo.jpg  -geometry 800x480  sixel:-
+		$ConvertCmd  foo.jpg  -geometry 800x480  sixel:-
 
 	If your terminal actually does support sixel, please file a bug
 	report at http://github.com/hackerb9/vv/issues
@@ -801,7 +806,7 @@ editproperty() {
 
     e "Writing comment into $file..."
     local t=$(mktemp "/tmp/$(basename $0).XXXXXX") || return 1
-    cp "$file" "$t"  &&  magick "$t" -set "$propname" "$newproperty" "$file"
+    cp "$file" "$t"  &&  $ConvertCmd "$t" -set "$propname" "$newproperty" "$file"
     rm "$t"
 }
 
@@ -842,7 +847,7 @@ yandeximagesearch() {
 	# It's a video, so search only for first frame.
 	echo "searching only first frame of video" >&2
 	file="$tmpdir/frame0.jpg"
-	magick  "file://$1[0]"  "$file"
+	$ConvertCmd  "file://$1[0]"  "$file"
 	deleteme="$file"
     fi
 
@@ -853,7 +858,7 @@ yandeximagesearch() {
 
     # Upload the image and save the output to search through.
     # Note: Curl's "@filename" splits filenames with commas & semicolons.
-    output=$(magick -sample "$scale"  "$file"  jpeg:- |
+    output=$($ConvertCmd -sample "$scale"  "$file"  jpeg:- |
 		 curl --max-time 30  --cookie "$cookie" \
 		      --form upfile='@-;filename=foo.jpg'  $url)
     if [[ $? -gt 0 ]]; then return; fi
@@ -914,14 +919,14 @@ numframes() {
     # faced with a video. Rely on mediainfo/ffprobe instead.
     case $(mimetype "$file") in
 	video/*)		#  («Radio killed?»)
-	    # MediaInfo is faster than magick, but doesn't handle GIF, APNG.
+	    # MediaInfo is faster than $ConvertCmd, but doesn't handle GIF, APNG.
 	    mediainfo  --Inform='Video;%FrameCount%'  "$file"
 	    ;;
 	*|image/*)		# An image file. (default)
 	    shopt -s nocasematch
 	    if [[ $file == *gif || $file == *png  ]]; then
 		# Note, it is much faster to pipe to 'wc' than to use
-		# `magick "$file[-1]" -format "%[scene]" info:-`
+		# `$ConvertCmd "$file[-1]" -format "%[scene]" info:-`
 		identify "$file" | wc -l
 	    else
 		echo 1
@@ -1227,7 +1232,7 @@ showimage() {
     local gt=""
     if [[ "$zoomin" ]]; then gt=""; else gt=">"; fi
 
-    # Centering an image can slow down magick by <200ms. XXX Worth it?
+    # Centering an image can slow down $ConvertCmd by <200ms. XXX Worth it?
     local centering="-gravity center -extent ${width}x${height}"
 
     # crop gets set in "fit width" mode, below.
@@ -1294,10 +1299,10 @@ showimage() {
 	    echo -n "${aalias:+, antialiased}"
 	    echo -en " view...\r"
 	    output=$( ${DEBUG:+debugdo} ${TIME} \
-		magick \
+		$ConvertCmd \
 			"file://$1[0]" \
-			-background $background \
-			-auto-orient ${dorotate} \
+      -background $background \
+      -auto-orient ${dorotate} \
 			-$resize "$geometry" \
 			$extract \
 			$crop \
@@ -1319,7 +1324,7 @@ showimage() {
 	    output=$(
 		echo -en "\e]8;;${osc8uri}\e\\" # Begin OSC 8 URI linking
 		${DEBUG:+debugdo} ${TIME} \
-		magick "file://$1[0]" \
+		$ConvertCmd "file://$1[0]" \
 			-auto-orient \
 			-$resize "$geometry" \
 			+repage -background $background \
@@ -1580,7 +1585,7 @@ doit () {
 		i) id "$f"			# Quick info
 		   ;;
 		I)				# Verbose info.
-		    magick "file://$f[0]" \
+		    $ConvertCmd "file://$f[0]" \
 			    -print "%[option:*]%[artifact:*]%[*]" \
 			    null:- | grep -v '^filename='
 		    echo $(realpath "$f")
@@ -1827,7 +1832,7 @@ dotfordot() {
     # pieces line up with the terminal text so there are no gaps.
     # Needs to be a multiple of the terminal's font height and width in pixels.
 
-    magick "$f" -crop ${wzoom}x${hzoom}@  -set filename:offset "%X %Y %w %h" \
+    $ConvertCmd "$f" -crop ${wzoom}x${hzoom}@  -set filename:offset "%X %Y %w %h" \
 	    +adjoin "$tmpdir/%[filename:offset] crop.ppm"
 
 
@@ -1836,7 +1841,7 @@ dotfordot() {
     local IFS=$'\n'
     for f in $(ls -1v $tmpdir/*crop.ppm); do
 	echo -en "$f\r"
-	magick "$f" "$f.sixel"
+	$ConvertCmd "$f" "$f.sixel"
 	cat "$f.sixel" | sed "s/-${ST}/${ST}\n/g"	# (sed kludge for bug in IM 6.9.12)
     done 
 
