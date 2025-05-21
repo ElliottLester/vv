@@ -1294,15 +1294,17 @@ showimage() {
 	    echo -n "${aalias:+, antialiased}"
 	    echo -en " view...\r"
 	    output=$( ${DEBUG:+debugdo} ${TIME} \
-		magick -background $background -auto-orient ${dorotate} \
+		magick \
+			"file://$1[0]" \
+			-background $background \
+			-auto-orient ${dorotate} \
+			-$resize "$geometry" \
 			$extract \
-			-$resize "$geometry"  \
 			$crop \
 			${enhance:+-channel rgb -auto-level -gamma 1.5} \
 			+dither ${dither:+-dither floyd-steinberg} \
 			$centering \
 			-colors $numcolors \
-			"file://$1[0]" \
 			$flatten \
 			sixel:-)
 	    # Note: -crop is used by fitwidth and interferes with -flatten.
